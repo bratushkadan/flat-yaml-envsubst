@@ -1,10 +1,10 @@
 #!/bin/sh
 
-set -ae
+set -ea
 
 cd $(dirname $0) || exit 1
 
-SUBST_PREFIX="K_"
+export SUBST_PREFIX="${SUBST_PREFIX:-"K_"}"
 
 ENV_YAML_PATH="env.yaml"
 
@@ -22,20 +22,20 @@ ENV_YAML=$(cat "${ENV_YAML_PATH}") || exit 1
 
 ENV_KEYS=$(echo "${ENV_YAML}" | yq -Mr '. | keys' | tr -- '- ' ' ' | xargs) || exit 1
 
-envsubst_env_keys=$(echo "${ENV_KEYS}" | tr ' ' '\n' | awk '{print "$K_"$1}' | xargs) || exit 1
+envsubst_env_keys=$(echo "${ENV_KEYS}" | tr ' ' '\n' | sed -E "s/(^.+$)/\$${SUBST_PREFIX}\1/g")
 
 for k in $ENV_KEYS
 do
     PREFIXED_KEY="${SUBST_PREFIX}${k}"
     PREFIXED_VAL="$(echo "${ENV_YAML}" | yq -Mr ".${k}")"
     export "${PREFIXED_KEY}"="${PREFIXED_VAL}"
-    echo "$PREFIXED_KEY=$PREFIXED_VAL"
-    envsubst_cmd="${envsubst_cmd} \$${PREFIXED_KEY}"
+    # log env key/value pairs to substitute
+    # echo "$PREFIXED_KEY=$PREFIXED_VAL"
 done
 
 # $@ is "dirs"
 for d in "$@"
 do
     # or '-name "*.yaml"' for yamls only to be substituted
-    find $d -type -f -exec sh -c "tmp=\$(mktemp); echo {} && envsubst '$envsubst_env_keys' <{} && rm \$tmp || rm \$tmp" \;
+    find $d -type f -maxdepth 32 -exec sh -c "tmp=\$(mktemp); envsubst '$envsubst_env_keys' <{} >\$tmp && mv \$tmp {}; rm -f \$tmp" \;
 done
