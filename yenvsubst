@@ -1,0 +1,41 @@
+#!/bin/sh
+
+set -ae
+
+cd $(dirname $0) || exit 1
+
+SUBST_PREFIX="K_"
+
+ENV_YAML_PATH="env.yaml"
+
+if [ ! -f "${ENV_YAML_PATH}" ]; then
+    echo "Error: flat key/value pairs file \"${ENV_YAML_PATH}\" must exist." >&2
+    exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+    echo "Error: no directories to transform passed." >&2
+    exit 1
+fi
+
+ENV_YAML=$(cat "${ENV_YAML_PATH}") || exit 1
+
+ENV_KEYS=$(echo "${ENV_YAML}" | yq -Mr '. | keys' | tr -- '- ' ' ' | xargs) || exit 1
+
+envsubst_env_keys=$(echo "${ENV_KEYS}" | tr ' ' '\n' | awk '{print "$K_"$1}' | xargs) || exit 1
+
+for k in $ENV_KEYS
+do
+    PREFIXED_KEY="${SUBST_PREFIX}${k}"
+    PREFIXED_VAL="$(echo "${ENV_YAML}" | yq -Mr ".${k}")"
+    export "${PREFIXED_KEY}"="${PREFIXED_VAL}"
+    echo "$PREFIXED_KEY=$PREFIXED_VAL"
+    envsubst_cmd="${envsubst_cmd} \$${PREFIXED_KEY}"
+done
+
+# $@ is "dirs"
+for d in "$@"
+do
+    # or '-name "*.yaml"' for yamls only to be substituted
+    find $d -type -f -exec sh -c "tmp=\$(mktemp); echo {} && envsubst '$envsubst_env_keys' <{} && rm \$tmp || rm \$tmp" \;
+done
